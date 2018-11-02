@@ -19,6 +19,7 @@ import warnings
 import numpy as np
 
 from energyflow.algorithms import VariableElimination, einsum_path
+from energyflow.efm import EFMSet, efp2efms
 from energyflow.efpbase import EFPBase, EFPElem
 from energyflow.gen import Generator
 from energyflow.utils import concat_specs, default_efp_file
@@ -50,6 +51,9 @@ def kwargs_check(name, kwargs, allowed=[]):
             continue
         raise TypeError(name + '() got an unexpected keyword argument \'{}\''.format(k))
 
+def vmax_from_specs(efm_specs):
+    return sum(max(efm_specs, key=sum))
+
 _sel_re = re.compile('(\w+)(<|>|==|!=|<=|>=)(\d+)$')
 
 
@@ -69,7 +73,7 @@ class EFP(EFPBase):
 
         - **edges** : _list_
             - Edges of the EFP graph specified by pairs of vertices.
-        - **measure** : {`'hadr'`, `'hadrdot'`, `'ee'`}
+        - **measure** : {`'hadr'`, `'hadrdot'`, `'hadrefm'`, `'ee'`, `'eeefm'`}
             - The choice of measure. See [Measures](../measures) 
             for additional info.
         - **beta** : _float_
@@ -95,6 +99,15 @@ class EFP(EFPBase):
 
         # store these edges as an EFPElem
         self.efpelem = EFPElem(edges)
+
+        if self.use_efms:
+            efm_einstr, efm_spec = efp2efms(self.graph)
+            self.__efmset = EFMSet(efm_spec, subslicing=self.subslicing)
+            efm_einpath = einsum_path(efm_einstr, *[np.empty([4]*sum(s)) for s in efm_spec],
+                                                  optimize=np_optimize)[0]
+            self.efpelem = EFPElem(self.graph, efm_einstr=efm_einstr, efm_einpath=efm_einpath,
+                                               efm_spec=efm_spec)
+
         self._np_optimize = np_optimize
 
         # setup ve for standard efp compute
@@ -108,7 +121,7 @@ class EFP(EFPBase):
     #===============
 
     # compute(event=None, zs=None, thetas=None)
-    def compute(self, event=None, zs=None, thetas=None, batch_call=None):
+    def compute(self, event=None, zs=None, thetas=None, ps=None, batch_call=None):
         """Computes the value of the EFP on a single event.
 
         **Arguments**
@@ -129,8 +142,11 @@ class EFP(EFPBase):
             - The EFP value.
         """
 
-        zs, thetas_dict = self.get_zs_thetas_dict(event, zs, thetas)
-        return self.efpelem.compute(zs, thetas_dict)
+        if self.use_efms:
+            return self.efpelem.efm_compute(self.construct_efms(event, zs, ps, self._efmset))
+        else:
+            zs, thetas_dict = self.get_zs_thetas_dict(event, zs, thetas)
+            return self.efpelem.compute(zs, thetas_dict)
 
     #===========
     # properties
@@ -153,6 +169,30 @@ class EFP(EFPBase):
         """Numpy einsum path specification for EFP computation."""
 
         return self.efpelem.einpath
+
+    @property
+    def _efm_spec(self):
+        """List of EFM signatures corresponding to _efm_einstr."""
+
+        return self.efpelem.efm_spec
+
+    @property
+    def _efm_einstr(self):
+        """Einstein summation string for the EFM computation."""
+
+        return self.efpelem.efm_einstr
+
+    @property
+    def _efm_einpath(self):
+        """Numpy einsum path specification for EFM computation."""
+
+        return self.efpelem.efm_einpath
+
+    @property
+    def _efmset(self):
+        """Instance of `EFMSet` help by this EFP if using EFMs."""
+
+        return self.__efmset if self.use_efms else None
 
     @property
     def np_optimize(self):
@@ -275,8 +315,10 @@ class EFPSet(EFPBase):
         # handle different methods of initialization
         maxs = ['nmax', 'emax', 'dmax', 'cmax', 'vmax', 'comp_dmaxs']
         elemvs = ['edges', 'weights', 'einstrs', 'einpaths']
+        efmvs = ['efm_einstrs', 'efm_einpaths', 'efm_specs']
         if len(args) >= 1 and isinstance(args[0], Generator):
-            constructor_attrs = maxs + elemvs + ['cols', 'c_specs', 'disc_specs', 'disc_formulae']
+            constructor_attrs = maxs + elemvs + efmvs + ['cols', 'gen_efms', 
+                                                         'c_specs', 'disc_specs', 'disc_formulae']
             gen = {attr: getattr(args[0], attr) for attr in constructor_attrs}
             args = args[1:]
         elif self.filename is not None:
@@ -285,7 +327,11 @@ class EFPSet(EFPBase):
         else:
             gen = np.load(default_efp_file)
 
-        # compile regular expression for use in sel()
+        # handle not having efm generation
+        if not gen['gen_efms'] and self.use_efms:
+            raise ValueError('Cannot use efm measure without providing efm generation.')
+
+        # compiled regular expression for use in sel()
         self._sel_re = _sel_re
         
         # put column headers and indices into namespace
@@ -307,8 +353,15 @@ class EFPSet(EFPBase):
         self._specs = concat_specs(self._cspecs, orig_disc_specs[disc_mask])
 
         # make EFPElem list
-        z = zip(*([gen[v] for v in elemvs] + [orig_c_specs[:,self.k_ind]]))
+        z = zip(*([gen[v] for v in elemvs] + [orig_c_specs[:,self.k_ind]] +
+                  [gen[v] if self.use_efms else repeat(None) for v in efmvs]))
         self.efpelems = [EFPElem(*args) for m,args in enumerate(z) if c_mask[m]]
+
+        # setup EFMs
+        if self.use_efms:
+            efm_specs = set(chain(*[elem.efm_spec for elem in self.efpelems]))
+            self.vmax = vmax_from_specs(efm_specs)
+            self.__efmset = EFMSet(efm_specs, subslicing=self.subslicing, max_v=self.vmax)
 
         # union over all weights needed
         self.__weight_set = frozenset(w for efpelem in self.efpelems for w in efpelem.weight_set)
@@ -379,7 +432,7 @@ class EFPSet(EFPBase):
         return np.squeeze(np.concatenate((X, results), axis=1))
 
     # compute(event=None, zs=None, thetas=None)
-    def compute(self, event=None, zs=None, thetas=None, batch_call=False):
+    def compute(self, event=None, zs=None, thetas=None, ps=None, batch_call=False):
         """Computes the values of the stored EFPs on a single event.
 
         **Arguments**
@@ -399,9 +452,13 @@ class EFPSet(EFPBase):
         - _1-d numpy.ndarray_
             - A vector of the EFP values.
         """
-        
-        zs, thetas_dict = self.get_zs_thetas_dict(event, zs, thetas)
-        results = [efpelem.compute(zs, thetas_dict) for efpelem in self.efpelems]
+
+        if self.use_efms:
+            efms_dict = self.construct_efms(event, zs, ps, self._efmset)
+            results = [efpelem.efm_compute(efms_dict) for efpelem in self.efpelems]
+        else:
+            zs, thetas_dict = self.get_zs_thetas_dict(event, zs, thetas)
+            results = [efpelem.efp_compute(zs, thetas_dict) for efpelem in self.efpelems]
 
         if batch_call:
             return results
@@ -588,11 +645,15 @@ class EFPSet(EFPBase):
         print(pad + 'Total: ', num_prime+num_composite)
 
     def set_timers(self):
+        if self.use_efms:
+            self.efmset.set_timers()
         for efpelem in self.efpelems:
             efpelem.set_timer()
 
     def get_times(self):
         efp_times = np.asarray([elem.times for elem in self.efpelems])
+        if self.use_efms:
+            return efp_times, self.efmset.get_times()
         return efp_times
 
     #===========
@@ -602,6 +663,12 @@ class EFPSet(EFPBase):
     @property
     def _weight_set(self):
         return self.__weight_set
+
+    @property
+    def _efmset(self):
+        """The `EFMSet` held by this object, if using EFMs."""
+
+        return self.__efmset
 
     @property
     def cols(self):

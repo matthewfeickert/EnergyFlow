@@ -284,6 +284,8 @@ class EEMeasure(Measure):
 ###############################################################################
 class HadronicDefaultMeasure(HadronicMeasure):
 
+    subslicing = None
+
     def __init__(self, *args, **kwargs):
         super(HadronicDefaultMeasure, self).__init__(*args, **kwargs)
         if self.kappa == pf_marker:
@@ -308,6 +310,7 @@ class HadronicDefaultMeasure(HadronicMeasure):
 ###############################################################################
 class HadronicDotMeasure(HadronicMeasure):
 
+    subslicing = None
     metric = flat_metric(4)
 
     def ndarray_dim3(self, arg):
@@ -331,6 +334,8 @@ class HadronicDotMeasure(HadronicMeasure):
 # EEDefaultMeasure
 ###############################################################################
 class EEDefaultMeasure(EEMeasure):
+
+    subslicing = None
 
     def ndarray_dim_arb(self, arg):
         if not self.epxpypz:

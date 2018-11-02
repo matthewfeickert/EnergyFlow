@@ -22,8 +22,10 @@ class EFPBase(with_metaclass(ABCMeta, object)):
 
         if 'efpm' in measure:
             raise ValueError('\'efpm\' no longer supported')
-        if 'efm' in measure:
-            raise ValueError('\'efm\' no longer supported')
+
+        self.use_efms = 'efm' in measure
+        if self.use_efms and beta != 2:
+            raise ValueError('Using an efm measure requires beta=2.')
 
         # store measure object
         self._measure = Measure(measure, beta, kappa, normed, coords, check_input)
@@ -32,11 +34,22 @@ class EFPBase(with_metaclass(ABCMeta, object)):
         if event is not None:
             zs, thetas = self._measure.evaluate(event)
         elif zs is None or thetas is None:
-            raise TypeError('if event is None then zs and/or thetas cannot also be None')
+            raise TypeError('If event is None then zs and thetas cannot also be None')
         return zs, {w: thetas**w for w in self._weight_set}
+
+    def construct_efms(self, event, zs, phats):
+        if event is not None:
+            zs, phats = self._measure.evaluate(event)
+        elif zs is None or phats is None:
+            raise TypeError('If event is None then zs and thetas cannot also be None')
+        return self._efmset.construct(zs, phats)
 
     @abstractproperty
     def _weight_set(self):
+        pass
+
+    @abstractproperty
+    def _efmset(self):
         pass
 
     @property
@@ -62,6 +75,10 @@ class EFPBase(with_metaclass(ABCMeta, object)):
     @property
     def check_input(self):
         return self._measure.check_input
+
+    @property
+    def subslicing(self):
+        return self._measure.subslicing
 
     def _batch_compute_func(self, event):
         return self.compute(event, batch_call=True)
@@ -113,14 +130,19 @@ class EFPBase(with_metaclass(ABCMeta, object)):
 class EFPElem(object):
 
     # if weights are given, edges are assumed to be simple 
-    def __init__(self, edges, weights=None, einstr=None, einpath=None, k=None):
+    def __init__(self, edges, weights=None, einstr=None, einpath=None, k=None,
+                              efm_einstr=None, efm_einpath=None, efm_spec=None):
 
-        transfer(self, locals(), ['einstr', 'einpath', 'k'])
+        transfer(self, locals(), ['einstr', 'einpath', 'k', 'efm_einstr', 'efm_einpath', 'efm_spec'])
 
         self.process_edges(edges, weights)
 
         self.pow2d = 2**self.d
         self.ndk = (self.n, self.d, self.k)
+
+        self.use_efms = self.efm_spec is not None
+        if self.use_efms:
+            self.efm_spec_set = frozenset(self.efm_spec)
 
     def process_edges(self, edges, weights):
 
@@ -153,9 +175,16 @@ class EFPElem(object):
         self.d = sum(self.weights)
         self.weight_set = frozenset(self.weights)
 
-    def compute(self, zs, thetas_dict):
+    def efp_compute(self, zs, thetas_dict):
         einsum_args = [thetas_dict[w] for w in self.weights] + self.n*[zs]
         return einsum(self.einstr, *einsum_args, optimize=self.einpath)
+
+    def efm_compute(self, efms_dict):
+        einsum_args = [efms_dict[sig] for sig in self.efm_spec]
+        return self.pow2d * einsum(self.efm_einstr, *einsum_args, optimize=self.efm_einpath)
+
+    def compute(self, zs, thetas_dict, efms_dict):
+        return self.efm_compute(efms_dict) if self.use_efms else self.efp_compute(zs, thetas_dict)
 
     def set_timer(self):
         self.times = []
@@ -163,4 +192,4 @@ class EFPElem(object):
 
     # properties set above:
     #     n, e, d, k, ndk, edges, simple_edges, weights, weight_set, einstr, einpath,
-    #     efm_einstr, efm_einpath, efm_spec, M_thresh
+    #     efm_einstr, efm_einpath, efm_spec
