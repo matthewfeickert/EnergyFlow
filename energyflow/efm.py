@@ -1,4 +1,4 @@
-"""_**Under Construction**_"""
+"""Implementations of the `EFM` and `EFMSet` classes and the `efp2efms` function."""
 
 from __future__ import absolute_import, division
 
@@ -7,8 +7,8 @@ from operator import itemgetter
 
 import numpy as np
 
-from energyflow.measure import flat_metric
-from energyflow.utils import timing
+from energyflow.algorithms import einsum
+from energyflow.utils import flat_metric, timing
 from energyflow.utils.graph_utils import *
 
 __all__ = ['EFM', 'EFMSet', 'efp2efms']
@@ -45,7 +45,7 @@ def efp2efms(graph):
     ind = 0
 
     # iterate over vertices sorted by valency in decreasing order
-    sorted_verts = sorted(valencies(graph).items(), key=lambda x: x[1], reverse=True)
+    sorted_verts = sorted(valencies(graph).items(), key=itemgetter(1), reverse=True)
     for vert,valency in sorted_verts:
 
         # dict holding info for new efm term
