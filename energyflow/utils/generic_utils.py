@@ -11,7 +11,8 @@ import numpy as np
 __all__ = [
     'default_efp_file', 
     'concat_specs', 
-    'iter_or_rep', 
+    'iter_or_rep',
+    'kwargs_check',
     'timing', 
     'transfer'
 ]
@@ -60,6 +61,12 @@ def iter_or_rep(arg):
     else:
         return repeat(arg)
 
+# raises TypeError if unexpected keyword left in kwargs
+def kwargs_check(name, kwargs, allowed=[]):
+    for k in kwargs:
+        if k not in allowed:
+            raise TypeError(name + '() got an unexpected keyword argument \'{}\''.format(k))
+
 # timing meta-decorator
 def timing(obj, func):
     @wraps(func)
@@ -73,9 +80,5 @@ def timing(obj, func):
 
 # transfers attrs from obj2 (dict or object) to obj1
 def transfer(obj1, obj2, attrs):
-    if isinstance(obj2, dict):
-        for attr in attrs:
-            setattr(obj1, attr, obj2[attr])
-    else:
-        for attr in attrs:
-            setattr(obj1, attr, getattr(obj2, attr))
+    for attr in attrs:
+        setattr(obj1, attr, obj2[attr] if isinstance(obj2, dict) else getattr(obj2, attr))

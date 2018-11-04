@@ -27,6 +27,7 @@ from energyflow.utils.graph_utils import graph_union
 
 __all__ = ['EFP', 'EFPSet']
 
+
 ###############################################################################
 # EFP helpers
 ###############################################################################
@@ -40,19 +41,9 @@ comp_map = {
     '!=': '__ne__'
 }
 
-# applies comprison comp of obj on val
+# applies comparison comp of obj on val
 def explicit_comp(obj, comp, val):
     return getattr(obj, comp_map[comp])(val)
-
-# raises TypeError if unexpected keyword left in kwargs
-def kwargs_check(name, kwargs, allowed=[]):
-    for k in kwargs:
-        if k in allowed:
-            continue
-        raise TypeError(name + '() got an unexpected keyword argument \'{}\''.format(k))
-
-def vmax_from_specs(efm_specs):
-    return sum(max(efm_specs, key=sum))
 
 _sel_re = re.compile('(\w+)(<|>|==|!=|<=|>=)(\d+)$')
 
@@ -115,9 +106,9 @@ class EFP(EFPBase):
          self.efpelem.einpath, 
          self.chi) = VariableElimination(np_optimize).einspecs(self.simple_graph, self.n)
 
-            
+
     #===============
-    # public methods
+    # PUBLIC METHODS
     #===============
 
     # compute(event=None, zs=None, thetas=None)
@@ -148,8 +139,9 @@ class EFP(EFPBase):
             zs, thetas_dict = self.get_zs_thetas_dict(event, zs, thetas)
             return self.efpelem.compute(zs, thetas_dict)
 
+
     #===========
-    # properties
+    # PROPERTIES
     #===========
 
     @property
@@ -166,7 +158,7 @@ class EFP(EFPBase):
 
     @property
     def _einpath(self):
-        """Numpy einsum path specification for EFP computation."""
+        """NumPy einsum path specification for EFP computation."""
 
         return self.efpelem.einpath
 
@@ -184,7 +176,7 @@ class EFP(EFPBase):
 
     @property
     def _efm_einpath(self):
-        """Numpy einsum path specification for EFM computation."""
+        """NumPy einsum path specification for EFM computation."""
 
         return self.efpelem.efm_einpath
 
@@ -360,8 +352,7 @@ class EFPSet(EFPBase):
         # setup EFMs
         if self.use_efms:
             efm_specs = set(chain(*[elem.efm_spec for elem in self.efpelems]))
-            self.vmax = vmax_from_specs(efm_specs)
-            self.__efmset = EFMSet(efm_specs, subslicing=self.subslicing, max_v=self.vmax)
+            self.__efmset = EFMSet(efm_specs, subslicing=self.subslicing)
 
         # union over all weights needed
         self.__weight_set = frozenset(w for efpelem in self.efpelems for w in efpelem.weight_set)
@@ -383,6 +374,7 @@ class EFPSet(EFPBase):
                 print('Current Stored EFPs:')
                 self.print_stats(lws=2)
 
+
     #================
     # PRIVATE METHODS
     #================
@@ -393,6 +385,7 @@ class EFPSet(EFPBase):
     def _make_graphs(self, connected_graphs):
         disc_comps = [[connected_graphs[i] for i in col_inds] for col_inds in self.disc_col_inds]
         return np.asarray(connected_graphs + [graph_union(*dc) for dc in disc_comps])
+
 
     #===============
     # PUBLIC METHODS
@@ -656,8 +649,9 @@ class EFPSet(EFPBase):
             return efp_times, self.efmset.get_times()
         return efp_times
 
+
     #===========
-    # properties
+    # PROPERTIES
     #===========
 
     @property

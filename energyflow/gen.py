@@ -16,11 +16,14 @@ igraph = igraph_import()
 
 __all__ = ['Generator']
 
+
 ###############################################################################
 # Generator helpers
 ###############################################################################
+
 def none2inf(x):
     return np.inf if x is None else x
+
 
 ###############################################################################
 # Generator
@@ -191,6 +194,7 @@ class Generator(object):
         if not hasattr(self, '_specs'):
             self._specs = concat_specs(self.c_specs, self.disc_specs)
         return self._specs
+
 
 ###############################################################################
 # PrimeGenerator
@@ -405,6 +409,7 @@ class PrimeGenerator(object):
                 self.efm_einpaths.append(einsum_path(einstr, 
                                                      *[np.empty([4]*sum(s)) for s in efm_spec],
                                                      optimize=self.ve.np_optimize)[0])
+
 
 ###############################################################################
 # CompositeGenerator
