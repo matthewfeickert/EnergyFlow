@@ -65,7 +65,8 @@ def iter_or_rep(arg):
 def kwargs_check(name, kwargs, allowed=[]):
     for k in kwargs:
         if k not in allowed:
-            raise TypeError(name + '() got an unexpected keyword argument \'{}\''.format(k))
+            m = name + '() got an unexpected keyword argument \'{}\''.format(k)
+            raise TypeError(m)
 
 # timing meta-decorator
 def timing(obj, func):

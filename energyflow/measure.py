@@ -103,7 +103,7 @@ class Measure(with_metaclass(ABCMeta, object)):
         else:
             return super(Measure, cls).__new__(cls)
 
-    def __init__(self, measure='hadr', beta=1, kappa=1, normed=True, coords=None, check_input=True):
+    def __init__(self, measure, beta=1, kappa=1, normed=True, coords=None, check_input=True):
         """Processes inputs according to the measure choice.
 
         **Arguments**
@@ -343,6 +343,10 @@ class HadronicEFMMeasure(HadronicMeasure):
 
     subslicing = False
 
+    def __init__(self, *args, **kwargs):
+        super(HadronicEFMMeasure, self).__init__(*args, **kwargs)
+        self.beta = None
+
     def ndarray_dim3(self, arg):
         return self._k_func(arg[:,0], p4s_from_ptyphims(arg), self.kappa)
 
@@ -382,6 +386,10 @@ class EEDefaultMeasure(EEMeasure):
 class EEEFMMeasure(EEMeasure):
 
     subslicing = True
+
+    def __init__(self, *args, **kwargs):
+        super(EEEFMMeasure, self).__init__(*args, **kwargs)
+        self.beta = None
 
     def ndarray_dim_arb(self, arg):
         if not self.epxpypz:

@@ -8,7 +8,7 @@ import numpy as np
 
 from energyflow.algorithms import *
 from energyflow.efm import efp2efms
-from energyflow.efpbase import EFPElem
+from energyflow.efp import EFP
 from energyflow.utils import concat_specs, default_efp_file, transfer
 from energyflow.utils.graph_utils import *
 
@@ -182,9 +182,9 @@ class Generator(object):
         """
         
         arrs = set(['dmax', 'nmax', 'emax', 'cmax', 'vmax', 'comp_dmaxs',
-                    'cols', 'np_optimize'])
+                    'cols', 'np_optimize', 'gen_efms'])
         arrs |= self._prime_attrs() | self._comp_attrs()
-        np.savez(filename, **{arr: getattr(self, arr) for arr in arrs})
+        np.savez_compressed(filename, **{arr: getattr(self, arr) for arr in arrs})
 
     @property
     def specs(self):
@@ -389,7 +389,7 @@ class PrimeGenerator(object):
                     d = sum(w)
                     k = ks.setdefault((n,d), 0)
                     ks[(n,d)] += 1
-                    vs = valencies(EFPElem(edgs, weights=w).edges).values()
+                    vs = valencies(EFP(edgs, weights=w).graph).values()
                     v = max(vs)
                     h = Counter(vs)[1]
                     c_specs.append([n, e, d, v, k, c, 1, h])
@@ -403,7 +403,7 @@ class PrimeGenerator(object):
         self.efm_einstrs, self.efm_specs, self.efm_einpaths = [], [], []
         if self.gen_efms:
             for edgs,ws in zip(self.edges, self.weights):
-                einstr, efm_spec = efp2efms(EFPElem(edgs, weights=ws).edges)
+                einstr, efm_spec = efp2efms(EFP(edgs, weights=ws).graph)
                 self.efm_einstrs.append(einstr)
                 self.efm_specs.append(efm_spec)
                 self.efm_einpaths.append(einsum_path(einstr, 

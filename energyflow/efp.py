@@ -12,17 +12,19 @@ and "angular" measure depend on the collider context and are discussed in the
 """
 from __future__ import absolute_import, division, print_function
 
+from collections import Counter
 from  itertools import chain, repeat
 import re
 import warnings
 
 import numpy as np
 
-from energyflow.algorithms import VariableElimination, einsum_path
+from energyflow.algorithms import VariableElimination, einsum, einsum_path
+from energyflow.base import EFPBase
 from energyflow.efm import EFMSet, efp2efms
-from energyflow.efpbase import EFPBase, EFPElem
-from energyflow.gen import Generator
-from energyflow.utils import concat_specs, default_efp_file
+# importing Generator from end of file
+from energyflow.measure import measure_kwargs
+from energyflow.utils import concat_specs, default_efp_file, kwargs_check
 from energyflow.utils.graph_utils import graph_union
 
 __all__ = ['EFP', 'EFPSet']
@@ -57,54 +59,93 @@ class EFP(EFPBase):
     keyword arguments are stored as properties of the `EFP` instance.
     """
 
-    def __init__(self, edges, measure='hadr', beta=1, kappa=1, normed=True, coords=None, 
-                              check_input=True, np_optimize='greedy'):
+    def __init__(self, edges, weights=None, einstr=None, einpath=None, k=None,
+                              efm_einstr=None, efm_einpath=None, efm_spec=None,
+                              np_optimize=True, **kwargs):
         """
         **Arguments**
 
         - **edges** : _list_
             - Edges of the EFP graph specified by pairs of vertices.
-        - **measure** : {`'hadr'`, `'hadrdot'`, `'hadrefm'`, `'ee'`, `'eeefm'`}
-            - The choice of measure. See [Measures](../measures) 
-            for additional info.
-        - **beta** : _float_
-            - The parameter $\\beta$ appearing in the measure.
-            Must be greater than zero.
-        - **kappa** : {_float_, `'pf'`}
-            - If a number, the energy weighting parameter $\\kappa$.
-            If `'pf'`, use $\\kappa=v-1$ where $v$ is the valency of the vertex.
-        - **normed** : _bool_
-            - Controls normalization of the energies in the measure.
-        - **coords** : {`'ptyphim'`, `'epxpypz'`, `None`}
-            - Controls which coordinates are assumed for the input. See 
-            [Measures](../measures) for additional info.
-        - **check_input** : _bool_
-            - Whether to check the type of the input each time or assume
-            the first input type.
         - **np_optimize** : {`True`, `False`, `'greedy'`, `'optimal'`}
             - The `optimize` keyword of `numpy.einsum_path`.
         """
 
-        # initialize EFPBase
-        super(EFP, self).__init__(measure, beta, kappa, normed, coords, check_input)
-
-        # store these edges as an EFPElem
-        self.efpelem = EFPElem(edges)
-
-        if self.use_efms:
-            efm_einstr, efm_spec = efp2efms(self.graph)
-            self.__efmset = EFMSet(efm_spec, subslicing=self.subslicing)
-            efm_einpath = einsum_path(efm_einstr, *[np.empty([4]*sum(s)) for s in efm_spec],
-                                                  optimize=np_optimize)[0]
-            self.efpelem = EFPElem(self.graph, efm_einstr=efm_einstr, efm_einpath=efm_einpath,
-                                               efm_spec=efm_spec)
-
+        # store parameters
+        self._einstr, self._einpath, self._k = einstr, einpath, k
+        self._efm_einstr, self._efm_einpath, self._efm_spec = efm_einstr, efm_einpath, efm_spec
         self._np_optimize = np_optimize
 
-        # setup ve for standard efp compute
-        (self.efpelem.einstr, 
-         self.efpelem.einpath, 
-         self.chi) = VariableElimination(np_optimize).einspecs(self.simple_graph, self.n)
+        # initialize base class
+        super(EFP, self).__init__(**kwargs)
+
+        # process edges
+        self._process_edges(edges, weights)
+
+        # handle not being in an EFPSet
+        if self.has_measure():
+            if self.use_efms:
+                self._efm_einstr, self._efm_spec = efp2efms(self.graph)
+                self._efmset = EFMSet(self._efm_spec, subslicing=self.subslicing, no_measure=True)
+                args = [np.empty([4]*sum(s)) for s in self._efm_spec]
+                self._efm_einpath = einsum_path(self._efm_einstr, *args, optimize=np_optimize)[0]
+            
+            # setup ve for standard efp compute
+            else:
+                ve = VariableElimination(self.np_optimize)
+                (self._einstr, self._einpath, self._chi) = ve.einspecs(self.simple_graph, self.n)
+
+        # else verify that no kwargs were passed
+        else:
+            kwargs_check('__init__', kwargs, allowed=['no_measure'])
+
+
+    #================
+    # PRIVATE METHODS
+    #================
+
+    def _process_edges(self, edges, weights):
+
+        # deal with arbitrary vertex labels
+        vertex_set = frozenset(v for edge in edges for v in edge)
+        vertices = {v: i for i,v in enumerate(vertex_set)}
+        
+        # determine number of vertices, empty edges are interpretted as graph with one vertex
+        self._n = len(vertices) if len(vertices) > 0 else 1
+
+        # construct new edges with remapped vertices
+        self._edges = [tuple(vertices[v] for v in sorted(edge)) for edge in edges]
+
+        # handle weights
+        if weights is None:
+            self._simple_edges = list(frozenset(self._edges))
+            counts = Counter(self._edges)
+            self._weights = tuple(counts[edge] for edge in self._simple_edges)
+
+            # invalidate einsum quantities because edges got reordered
+            self._einstr = self._einpath = None
+
+        else:
+            if len(weights) != len(self._edges):
+                raise ValueError('length of weights is not number of edges')
+            self._simple_edges = self._edges
+            self._weights = tuple(weights)
+
+        self._edges = [e for w,e in zip(self._weights, self._simple_edges) for i in range(w)]
+
+        self._e = len(self._simple_edges)
+        self._d = sum(self._weights)
+        self._weight_set = frozenset(self._weights)
+        self._pow2d = 2**self._d
+        self._ndk = (self._n, self._d, self._k)
+
+    def _efp_compute(self, zs, thetas_dict):
+        einsum_args = [thetas_dict[w] for w in self._weights] + self._n*[zs]
+        return einsum(self._einstr, *einsum_args, optimize=self._einpath)
+
+    def _efm_compute(self, efms_dict):
+        einsum_args = [efms_dict[sig] for sig in self._efm_spec]
+        return self._pow2d * einsum(self._efm_einstr, *einsum_args, optimize=self._efm_einpath)
 
 
     #===============
@@ -112,7 +153,7 @@ class EFP(EFPBase):
     #===============
 
     # compute(event=None, zs=None, thetas=None)
-    def compute(self, event=None, zs=None, thetas=None, ps=None, batch_call=None):
+    def compute(self, event=None, zs=None, thetas=None, phats=None, batch_call=None):
         """Computes the value of the EFP on a single event.
 
         **Arguments**
@@ -134,10 +175,9 @@ class EFP(EFPBase):
         """
 
         if self.use_efms:
-            return self.efpelem.efm_compute(self.construct_efms(event, zs, ps, self._efmset))
+            return self._efm_compute(self.compute_efms(event, zs, phats))
         else:
-            zs, thetas_dict = self.get_zs_thetas_dict(event, zs, thetas)
-            return self.efpelem.compute(zs, thetas_dict)
+            return self._efp_compute(*self.get_zs_thetas_dict(event, zs, thetas))
 
 
     #===========
@@ -145,46 +185,46 @@ class EFP(EFPBase):
     #===========
 
     @property
-    def _weight_set(self):
+    def weight_set(self):
         """Set of edge weights for the graph of this EFP."""
 
-        return self.efpelem.weight_set
+        return self._weight_set
 
     @property
-    def _einstr(self):
+    def einstr(self):
         """Einstein summation string for the EFP computation."""
 
-        return self.efpelem.einstr
+        return self._einstr
 
     @property
-    def _einpath(self):
+    def einpath(self):
         """NumPy einsum path specification for EFP computation."""
 
-        return self.efpelem.einpath
+        return self._einpath
 
     @property
-    def _efm_spec(self):
+    def efm_spec(self):
         """List of EFM signatures corresponding to _efm_einstr."""
 
-        return self.efpelem.efm_spec
+        return self._efm_spec
 
     @property
-    def _efm_einstr(self):
+    def efm_einstr(self):
         """Einstein summation string for the EFM computation."""
 
-        return self.efpelem.efm_einstr
+        return self._efm_einstr
 
     @property
-    def _efm_einpath(self):
+    def efm_einpath(self):
         """NumPy einsum path specification for EFM computation."""
 
-        return self.efpelem.efm_einpath
+        return self._efm_einpath
 
     @property
-    def _efmset(self):
+    def efmset(self):
         """Instance of `EFMSet` help by this EFP if using EFMs."""
 
-        return self.__efmset if self.use_efms else None
+        return self._efmset if self.use_efms else None
 
     @property
     def np_optimize(self):
@@ -196,38 +236,38 @@ class EFP(EFPBase):
     def graph(self):
         """Graph of this EFP represented by a list of edges."""
 
-        return self.efpelem.edges
+        return self._edges
 
     @property
     def simple_graph(self):
         """Simple graph of this EFP (forgetting all multiedges)
         represented by a list of edges."""
 
-        return self.efpelem.simple_edges
+        return self._simple_edges
 
     @property
     def n(self):
         """Number of vertices in the graph of this EFP."""
 
-        return self.efpelem.n
+        return self._n
 
     @property
     def d(self):
         """Degree, or number of edges, in the graph of this EFP."""
 
-        return self.efpelem.d
+        return self._d
 
     @property
     def e(self):
         """Number of edges in the simple graph of this EFP."""
 
-        return self.efpelem.e
+        return self._e
 
     @property
     def c(self):
         """VE complexity $\\chi$ of this EFP."""
 
-        return self.chi
+        return self._chi
 
 
 ###############################################################################
@@ -282,27 +322,18 @@ class EFPSet(EFPBase):
             - Controls printed output when initializing EFPSet.
         """
 
-        default_kwargs = {'filename': None,
-                          'measure': 'hadr',
-                          'beta': 1,
-                          'kappa': 1,
-                          'normed': True,
-                          'coords': None,
-                          'check_input': True,
-                          'verbose': False}
-        measure_kwargs = ['measure', 'beta', 'kappa', 'normed', 'coords', 'check_input']
+        default_kwargs = {'filename': None, 'verbose': False}
 
         # process arguments
         for k,v in default_kwargs.items():
             if k not in kwargs:
                 kwargs[k] = v
-            if k not in measure_kwargs:
-                setattr(self, k, kwargs.pop(k))
+            setattr(self, k, kwargs.pop(k))
 
         kwargs_check('__init__', kwargs, allowed=measure_kwargs)
 
         # initialize EFPBase
-        super(EFPSet, self).__init__(*[kwargs[k] for k in measure_kwargs])
+        super(EFPSet, self).__init__(**kwargs)
 
         # handle different methods of initialization
         maxs = ['nmax', 'emax', 'dmax', 'cmax', 'vmax', 'comp_dmaxs']
@@ -328,7 +359,7 @@ class EFPSet(EFPBase):
         
         # put column headers and indices into namespace
         self._cols = gen['cols']
-        self._set_col_inds()
+        self.__dict__.update({col+'_ind': i for i,col in enumerate(self.cols)})
 
         # put gen maxs into dict
         self.gen_maxs = {m: gen[m] for m in maxs}
@@ -344,21 +375,21 @@ class EFPSet(EFPBase):
         self._cspecs = orig_c_specs[c_mask]
         self._specs = concat_specs(self._cspecs, orig_disc_specs[disc_mask])
 
-        # make EFPElem list
+        # make EFP list
         z = zip(*([gen[v] for v in elemvs] + [orig_c_specs[:,self.k_ind]] +
                   [gen[v] if self.use_efms else repeat(None) for v in efmvs]))
-        self.efpelems = [EFPElem(*args) for m,args in enumerate(z) if c_mask[m]]
+        self._efps = [EFP(*args, no_measure=True) for m,args in enumerate(z) if c_mask[m]]
 
         # setup EFMs
         if self.use_efms:
-            efm_specs = set(chain(*[elem.efm_spec for elem in self.efpelems]))
-            self.__efmset = EFMSet(efm_specs, subslicing=self.subslicing)
+            efm_specs = set(chain(*[elem.efm_spec for elem in self._efps]))
+            self._efmset = EFMSet(efm_specs, subslicing=self.subslicing)
 
         # union over all weights needed
-        self.__weight_set = frozenset(w for efpelem in self.efpelems for w in efpelem.weight_set)
+        self._weight_set = frozenset(w for efp in self._efps for w in efp.weight_set)
 
         # get col indices for disconnected formulae
-        connected_ndk = {efpelem.ndk: i for i,efpelem in enumerate(self.efpelems)}
+        connected_ndk = {efp._ndk: i for i,efp in enumerate(self._efps)}
         self.disc_col_inds = []
         for formula in self.disc_formulae:
             try:
@@ -378,9 +409,6 @@ class EFPSet(EFPBase):
     #================
     # PRIVATE METHODS
     #================
-
-    def _set_col_inds(self):
-        self.__dict__.update({col+'_ind': i for i,col in enumerate(self.cols)})
 
     def _make_graphs(self, connected_graphs):
         disc_comps = [[connected_graphs[i] for i in col_inds] for col_inds in self.disc_col_inds]
@@ -447,11 +475,11 @@ class EFPSet(EFPBase):
         """
 
         if self.use_efms:
-            efms_dict = self.construct_efms(event, zs, ps, self._efmset)
-            results = [efpelem.efm_compute(efms_dict) for efpelem in self.efpelems]
+            efms_dict = self.compute_efms(event, zs, ps, self._efmset)
+            results = [efp._efm_compute(efms_dict) for efp in self._efps]
         else:
             zs, thetas_dict = self.get_zs_thetas_dict(event, zs, thetas)
-            results = [efpelem.efp_compute(zs, thetas_dict) for efpelem in self.efpelems]
+            results = [efp._efp_compute(zs, thetas_dict) for efp in self._efps]
 
         if batch_call:
             return results
@@ -589,7 +617,7 @@ class EFPSet(EFPBase):
 
         # if we haven't extracted the graphs, do it now
         if not hasattr(self, '_graphs'):
-            self._graphs = self._make_graphs([elem.edges for elem in self.efpelems])
+            self._graphs = self._make_graphs([efp.graph for efp in self._efps])
 
         # handle case of single graph
         if len(args) and isinstance(args[0], int):
@@ -616,9 +644,9 @@ class EFPSet(EFPBase):
             - An array of simple graphs (as lists of edges) matching the specifications.
         """
 
-        # is we haven't extracted the simple graphs, do it now
+        # if we haven't extracted the simple graphs, do it now
         if not hasattr(self, '_simple_graphs'):
-            self._simple_graphs = self._make_graphs([elem.simple_edges for elem in self.efpelems])
+            self._simple_graphs = self._make_edges([efp.simple_graph for efp in self._efps])
 
         # handle case of single graph
         if len(args) and isinstance(args[0], int):
@@ -655,14 +683,18 @@ class EFPSet(EFPBase):
     #===========
 
     @property
-    def _weight_set(self):
-        return self.__weight_set
+    def weight_set(self):
+        return self._weight_set
 
     @property
-    def _efmset(self):
+    def efmset(self):
         """The `EFMSet` held by this object, if using EFMs."""
 
-        return self.__efmset
+        return self._efmset if self.use_efms else None
+
+    @property
+    def efps(self):
+        return self._efps
 
     @property
     def cols(self):
@@ -693,3 +725,6 @@ class EFPSet(EFPBase):
         """Specification array for connected EFPs."""
 
         return self._cspecs
+
+# put import here so it succeeds
+from energyflow.gen import Generator

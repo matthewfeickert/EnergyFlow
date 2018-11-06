@@ -91,15 +91,39 @@ def test_batch_compute_vs_compute(measure, beta, kappa, normed):
 @pytest.mark.parametrize('normed', [True, False])
 @pytest.mark.parametrize('kappa', [0, 0.5, 1, 'pf'])
 @pytest.mark.parametrize('beta', [.5, 1, 2])
-@pytest.mark.parametrize('measure', ['hadr', 'hadrdot', 'ee'])
+@pytest.mark.parametrize('measure', ['hadr', 'hadrdot', 'ee', ('hadrefm', 10**-9), ('eeefm', 10**-11)])
 def test_efpset_vs_efps(measure, beta, kappa, normed, event):
+    if len(measure) == 2:
+        measure, eps = measure
+    else:
+        eps = 10**-12
+
     # handle cases we want to skip
     if measure == 'hadr' and kappa == 'pf':
         pytest.skip('hadr does not do pf')
     if kappa == 'pf' and normed:
         pytest.skip('normed not supported with kappa=pf')
+    if beta != 2 and 'efm' in measure:
+        pytest.skip('only do EFMs with beta=2')
     s1 = ef.EFPSet('d<=6', measure=measure, beta=beta, kappa=kappa, normed=normed)
     efps = [ef.EFP(g, measure=measure, beta=beta, kappa=kappa, normed=normed) for g in s1.graphs()]
     r1 = s1.compute(event)
     r2 = np.asarray([efp.compute(event) for efp in efps])
-    assert epsilon_percent(r1, r2, 10**-12)
+    assert epsilon_percent(r1, r2, eps)
+
+# test that EFM works
+@pytest.mark.slow
+@pytest.mark.efm
+@pytest.mark.parametrize('event', ef.gen_random_events(2, 15))
+@pytest.mark.parametrize('normed', [True, False])
+@pytest.mark.parametrize('kappa', [0, 0.5, 1, 'pf'])
+@pytest.mark.parametrize('beta', [2, pytest.param(1.9, marks=pytest.mark.xfail)])
+@pytest.mark.parametrize('measures', [('hadrdot', 'hadrefm', 10), ('ee', 'eeefm', 13)])
+def test_efps_vs_efms(measures, beta, kappa, normed, event):
+    if kappa == 'pf' and normed:
+        pytest.skip('normed not supported with kappa=pf')
+    s1 = ef.EFPSet('d<=6', measure=measures[0], beta=beta, kappa=kappa, normed=normed)
+    s2 = ef.EFPSet('d<=6', measure=measures[1], beta=beta, kappa=kappa, normed=normed)
+    r1 = s1.compute(event)
+    r2 = s2.compute(event)
+    assert epsilon_percent(r1, r2, 10**-measures[2])
