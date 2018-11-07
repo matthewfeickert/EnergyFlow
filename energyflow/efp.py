@@ -1,11 +1,11 @@
-"""Energy Flow Polynomials (EFPs) are a set of observables, indexed by non-isomorphic 
+r"""Energy Flow Polynomials (EFPs) are a set of observables, indexed by non-isomorphic 
 multigraphs, which linearly span the space of infrared and collinear safe (IRC-safe) 
 observables.
 
 An EFP, indexed by a multigraph $G$, takes the following form:
-$$\\text{EFP}_G=\\sum_{i_1=1}^M\\cdots\\sum_{i_N=1}^Mz_{i_1}\\cdots z_{i_N}
-\\prod_{(k,\\ell)\\in G}\\theta_{i_ki_\\ell}$$
-where $z_i$ is a measure of the energy of particle $i$ and $\\theta_{ij}$ is a measure 
+$$\text{EFP}_G=\sum_{i_1=1}^M\cdots\sum_{i_N=1}^Mz_{i_1}\cdots z_{i_N}
+\prod_{(k,\ell)\in G}\theta_{i_ki_\ell}$$
+where $z_i$ is a measure of the energy of particle $i$ and $\theta_{ij}$ is a measure 
 of the angular separation between particles $i$ and $j$. The specific choices for "energy"
 and "angular" measure depend on the collider context and are discussed in the 
 [Measures](../measures) section.
@@ -23,7 +23,7 @@ from energyflow.algorithms import VariableElimination, einsum, einsum_path
 from energyflow.base import EFPBase
 from energyflow.efm import EFMSet, efp2efms
 # importing Generator from end of file
-from energyflow.measure import measure_kwargs
+from energyflow.measure import pf_marker
 from energyflow.utils import concat_specs, default_efp_file, kwargs_check
 from energyflow.utils.graph_utils import graph_union
 
@@ -47,7 +47,7 @@ comp_map = {
 def explicit_comp(obj, comp, val):
     return getattr(obj, comp_map[comp])(val)
 
-_sel_re = re.compile('(\w+)(<|>|==|!=|<=|>=)(\d+)$')
+_sel_re = re.compile(r'(\w+)(<|>|==|!=|<=|>=)(\d+)$')
 
 
 ###############################################################################
@@ -77,7 +77,7 @@ class EFP(EFPBase):
         self._np_optimize = np_optimize
 
         # initialize base class
-        super(EFP, self).__init__(**kwargs)
+        super(EFP, self).__init__(kwargs)
 
         # process edges
         self._process_edges(edges, weights)
@@ -97,7 +97,7 @@ class EFP(EFPBase):
 
         # else verify that no kwargs were passed
         else:
-            kwargs_check('__init__', kwargs, allowed=['no_measure'])
+            kwargs_check('EFP', kwargs, allowed=[])
 
 
     #================
@@ -279,11 +279,9 @@ class EFPSet(EFPBase):
     Note that all keyword arguments are stored as properties of the `EFPSet` instance.
     """
 
-    # EFPSet(*args, filename=None, measure='hadr', beta=1, kappa=1, normed=True, 
-    #        coords='ptyphim', check_input=True, verbose=False)
+    # EFPSet(*args, filename=None, verbose=False)
     def __init__(self, *args, **kwargs):
-        """
-        EFPSet can be initialized in one of three ways (in order of precedence):
+        r"""EFPSet can be initialized in one of three ways (in order of precedence):
 
         1. **Default** - Use the ($d\le10$) EFPs that come installed with the
         `EnergFlow` package.
@@ -305,19 +303,6 @@ class EFPSet(EFPBase):
         - **filename** : _string_
             - Path to a `.npz` file which has been saved by a valid
             `energyflow.Generator`.
-        - **measure** : {`'hadr'`, `'hadr-dot'`, `'ee'`}
-            - See [Measures](../measures) for additional info.
-        - **beta** : _float_
-            - The parameter $\\beta$ appearing in the measure.
-            Must be greater than zero.
-        - **kappa** : {_float_, `'pf'`}
-            - If a number, the energy weighting parameter $\\kappa$.
-            If `'pf'`, use $\\kappa=v-1$ where $v$ is the valency of the vertex.
-        - **normed** : _bool_
-            - Controls normalization of the energies in the measure.
-        - **check_type** : _bool_
-            - Whether to check the type of the input each time or use
-            the first input type.
         - **verbose** : _bool_
             - Controls printed output when initializing EFPSet.
         """
@@ -330,10 +315,8 @@ class EFPSet(EFPBase):
                 kwargs[k] = v
             setattr(self, k, kwargs.pop(k))
 
-        kwargs_check('__init__', kwargs, allowed=measure_kwargs)
-
         # initialize EFPBase
-        super(EFPSet, self).__init__(**kwargs)
+        super(EFPSet, self).__init__(kwargs)
 
         # handle different methods of initialization
         maxs = ['nmax', 'emax', 'dmax', 'cmax', 'vmax', 'comp_dmaxs']
@@ -475,7 +458,7 @@ class EFPSet(EFPBase):
         """
 
         if self.use_efms:
-            efms_dict = self.compute_efms(event, zs, ps, self._efmset)
+            efms_dict = self.compute_efms(event, zs, ps)
             results = [efp._efm_compute(efms_dict) for efp in self._efps]
         else:
             zs, thetas_dict = self.get_zs_thetas_dict(event, zs, thetas)

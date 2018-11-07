@@ -1,4 +1,4 @@
-"""### Particle Tools
+r"""### Particle Tools
 
 Tools to compute particle kinematic quantities from four-vectors,
 such as transverse momentum $p_T$, rapidity $y$, and azimuthal angle
@@ -12,7 +12,6 @@ import numpy as np
 
 __all__ = [
     'p4s_from_ptyphims',
-    'p4s_from_ptyphis',
     'ptyphims_from_p4s',
     'pts_from_p4s',
     'ys_from_p4s',
@@ -23,7 +22,7 @@ __all__ = [
 ]
 
 def ptyphims_from_p4s(p4s, phi_ref=None, keep_allzeros=True):
-    """Compute the `[pt,y,phi,m]` representation of a four-vector for each Euclidean
+    r"""Compute the `[pt,y,phi,m]` representation of a four-vector for each Euclidean
     four-vector given as input. All-zero four-vectors are removed unless `keep_shape` 
     is `True`.
 
@@ -111,7 +110,7 @@ def ys_from_p4s(p4s):
 
 
 def phis_from_p4s(p4s, phi_ref=None):
-    """Calculate the azimuthal angles of a collection of four-vectors. If `phi_ref` is 
+    r"""Calculate the azimuthal angles of a collection of four-vectors. If `phi_ref` is 
     not `None`, then `phi_fix` is called using this value. Otherwise, 
     the angles are chosen to be in the inverval $[0,2\pi]$.
     
@@ -195,20 +194,9 @@ def p4s_from_ptyphims(ptyphims):
     return np.squeeze(p4s)
 
 
-def p4s_from_ptyphis(ptyphis):
-    """_Legacy function_: Will be removed in version 1.0. Use `p4s_from_ptyphims`
-    for equivalent functionality.
-    """
-
-    warnings.warn(('This function is deprecated and will be removed in version 1.0. ' +
-                   'Use p4s_from_ptyphims for equivalent functionality.'))
-
-    return p4s_from_ptyphims(ptyphis)
-
-
 twopi = 2*np.pi
 def phi_fix(phis, phi_ref, copy=False):
-    """A function to ensure that all phi values are within $\pi$ of `phi_ref`. 
+    r"""A function to ensure that all phi values are within $\pi$ of `phi_ref`. 
     It is assumed that all starting phi values are within $2\pi$ of `phi_ref`.
 
     **Arguments**
@@ -233,6 +221,7 @@ def phi_fix(phis, phi_ref, copy=False):
     new_phis[diff > np.pi] -= twopi
     new_phis[diff < -np.pi] += twopi
     return new_phis
+
 
 long_metric = np.array([1.] + [-1.]*100)
 def flat_metric(dim):

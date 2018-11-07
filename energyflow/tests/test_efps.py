@@ -91,9 +91,9 @@ def test_batch_compute_vs_compute(measure, beta, kappa, normed):
 @pytest.mark.parametrize('normed', [True, False])
 @pytest.mark.parametrize('kappa', [0, 0.5, 1, 'pf'])
 @pytest.mark.parametrize('beta', [.5, 1, 2])
-@pytest.mark.parametrize('measure', ['hadr', 'hadrdot', 'ee', ('hadrefm', 10**-9), ('eeefm', 10**-11)])
+@pytest.mark.parametrize('measure', ['hadr', 'hadrdot', 'ee', ('hadrefm', 10**-9), ('eeefm', 10**-10)])
 def test_efpset_vs_efps(measure, beta, kappa, normed, event):
-    if len(measure) == 2:
+    if len(measure) == 2 and measure != 'ee':
         measure, eps = measure
     else:
         eps = 10**-12

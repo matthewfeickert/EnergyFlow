@@ -39,6 +39,7 @@ def test_gen_random_events_mcom(nevents, nparticles, dim):
 
 # test measures
 ptyphis = [(10*np.random.rand(25), 6*np.random.rand(25)-3, 2*np.pi*np.random.rand(25)) for i in range(3)]
+ptyphis += [([10*np.random.rand()], [6*np.random.rand()-3], [2*np.pi*np.random.rand()]) for i in range(3)] 
 
 @pytest.mark.measure
 @pytest.mark.parametrize('normed', [True, False])
@@ -47,6 +48,7 @@ ptyphis = [(10*np.random.rand(25), 6*np.random.rand(25)-3, 2*np.pi*np.random.ran
 @pytest.mark.parametrize('pts,ys,phis', ptyphis)
 def test_measure_hadr_ptyphi(pts, ys, phis, beta, kappa, normed):
     M = len(pts)
+    pts = np.asarray(pts)
     
     # compute using the energyflow package
     hmeas = ef.Measure('hadr', beta, kappa, normed, 'ptyphim', True)
@@ -65,25 +67,25 @@ def test_measure_hadr_ptyphi(pts, ys, phis, beta, kappa, normed):
 @pytest.mark.parametrize('normed', [True, False])
 @pytest.mark.parametrize('kappa', [0, .5, 1])
 @pytest.mark.parametrize('beta', [.2, 1, 2])
-@pytest.mark.parametrize('event', ef.gen_random_events(3, 15))
-def test_measure_hadr_p4s(event, beta, kappa, normed):
-    M = len(event)
-    pTs = np.sqrt(event[:,1]**2 + event[:,2]**2)
-    ys = 0.5*np.log((event[:,0] + event[:,3])/(event[:,0] - event[:,3]))
-    phis = np.arctan2(event[:,2], event[:,1])
-    
-    # compute using the energyflow package
-    hmeas = ef.Measure('hadr', beta, kappa, normed, 'epxpypz', True)
-    hzs, hthetas = hmeas.evaluate(event)
-    
-    # compute naively
-    norm = 1 if not normed else np.sum(pTs**kappa)
-    zs = (pTs**kappa)/norm
-    thetas = np.asarray([[(ys[i]-ys[j])**2 + min(abs(phis[i]-phis[j]), 2*np.pi-abs(phis[i]-phis[j]))**2
-                          for i in range(M)] for j in range(M)])**(beta/2)
-    
-    assert epsilon_diff(hzs, zs, 10**-13)
-    assert epsilon_diff(hthetas, thetas, 10**-13)
+@pytest.mark.parametrize('M', [1, 15])
+def test_measure_hadr_p4s(M, beta, kappa, normed):
+    for event in ef.gen_random_events(3, M):
+        pTs = np.sqrt(event[:,1]**2 + event[:,2]**2)
+        ys = 0.5*np.log((event[:,0] + event[:,3])/(event[:,0] - event[:,3]))
+        phis = np.arctan2(event[:,2], event[:,1])
+        
+        # compute using the energyflow package
+        hmeas = ef.Measure('hadr', beta, kappa, normed, 'epxpypz', True)
+        hzs, hthetas = hmeas.evaluate(event)
+        
+        # compute naively
+        norm = 1 if not normed else np.sum(pTs**kappa)
+        zs = (pTs**kappa)/norm
+        thetas = np.asarray([[(ys[i]-ys[j])**2 + min(abs(phis[i]-phis[j]), 2*np.pi-abs(phis[i]-phis[j]))**2
+                              for i in range(M)] for j in range(M)])**(beta/2)
+        
+        assert epsilon_diff(hzs, zs, 10**-13)
+        assert epsilon_diff(hthetas, thetas, 10**-13)
 
 @pytest.mark.measure
 @pytest.mark.parametrize('normed', [True, False])
@@ -115,71 +117,77 @@ def test_measure_hadrdot_ptyphi(event, beta, theta_eps, kappa, normed):
 @pytest.mark.parametrize('normed', [True, False])
 @pytest.mark.parametrize('kappa', [0, .5, 1, 'pf'])
 @pytest.mark.parametrize('beta,theta_eps', [(1, 5.5), (2,12), (np.pi, 10)])
-@pytest.mark.parametrize('event', [2*np.random.rand(15,4)-1 for i in range(3)])
-def test_measure_hadrdot_p4s(event, beta, theta_eps, kappa, normed):
+@pytest.mark.parametrize('M', [1, 15])
+def test_measure_hadrdot_p4s(M, beta, theta_eps, kappa, normed):
     if normed and kappa == 'pf':
         pytest.skip()
-    
-    pTs = np.sqrt(event[:,1]**2 + event[:,2]**2)
-    ps  = event
-   
-    # compute using the energyflow package
-    hmeas = ef.Measure('hadrdot', beta, kappa, normed, 'epxpypz', True)
-    hzs, hthetas = hmeas.evaluate(event)
-        
-    # compute naively
-    norm = 1 if not normed else np.sum(pTs**kappa)
-    zs = (pTs**kappa)/norm if kappa != 'pf' else np.ones(len(pTs))
-    
-    phats = np.asarray([p/(pT if kappa != 'pf' else 1) for p,pT in zip(ps,pTs)])
-    thetas = np.asarray([[2*abs(phti[0]*phtj[0]-np.dot(phti[1:],phtj[1:])) for phti in phats] for phtj in phats])**(beta/2)
 
-    assert epsilon_diff(hzs, zs, 10**-13)
-    assert epsilon_diff(hthetas, thetas, 10**-theta_eps)
+    for event in [2*np.random.rand(M,4)-1 for i in range(3)]:
+    
+        pTs = np.sqrt(event[:,1]**2 + event[:,2]**2)
+        ps  = event
+       
+        # compute using the energyflow package
+        hmeas = ef.Measure('hadrdot', beta, kappa, normed, 'epxpypz', True)
+        hzs, hthetas = hmeas.evaluate(event)
+            
+        # compute naively
+        norm = 1 if not normed else np.sum(pTs**kappa)
+        zs = (pTs**kappa)/norm if kappa != 'pf' else np.ones(len(pTs))
+        
+        phats = np.asarray([p/(pT if kappa != 'pf' else 1) for p,pT in zip(ps,pTs)])
+        thetas = np.asarray([[2*abs(phti[0]*phtj[0]-np.dot(phti[1:],phtj[1:])) for phti in phats] for phtj in phats])**(beta/2)
+
+        assert epsilon_diff(hzs, zs, 10**-13)
+        assert epsilon_diff(hthetas, thetas, 10**-theta_eps)
 
 @pytest.mark.measure
 @pytest.mark.parametrize('normed', [True, False])
 @pytest.mark.parametrize('kappa', [0, .5, 1, 'pf'])
 @pytest.mark.parametrize('beta,theta_eps', [(1, 6), (2,11), (np.pi, 9)])
-@pytest.mark.parametrize('event', [2*np.random.rand(15,dim) for dim in [4,6] for i in range(2)])
-def test_measure_ee(event, beta, theta_eps, kappa, normed):
+@pytest.mark.parametrize('M', [1, 15])
+def test_measure_ee(M, beta, theta_eps, kappa, normed):
     if kappa == 'pf' and normed:
         pytest.skip()
 
-    Es = event[:,0]
+    for event in [2*np.random.rand(M,dim) for dim in [4,6] for i in range(2)]:
 
-    emeas = ef.Measure('ee', beta, kappa, normed, 'epxpypz', True)
-    ezs, ethetas = emeas.evaluate(event)
+        Es = event[:,0]
 
-    # compute naively
-    if kappa == 'pf':
-        zs = np.ones(len(Es))
-        phats = event
-    else:
-        if normed:
-            zs = Es**kappa/np.sum(Es**kappa)
+        emeas = ef.Measure('ee', beta, kappa, normed, 'epxpypz', True)
+        ezs, ethetas = emeas.evaluate(event)
+
+        # compute naively
+        if kappa == 'pf':
+            zs = np.ones(len(Es))
+            phats = event
         else:
-            zs = Es**kappa
-        phats = event/Es[:,np.newaxis]
+            if normed:
+                zs = Es**kappa/np.sum(Es**kappa)
+            else:
+                zs = Es**kappa
+            phats = event/Es[:,np.newaxis]
 
-    thetas = np.asarray([[2*abs(phti[0]*phtj[0]-np.dot(phti[1:],phtj[1:])) for phti in phats] for phtj in phats])**(beta/2)
+        thetas = np.asarray([[2*abs(phti[0]*phtj[0]-np.dot(phti[1:],phtj[1:])) for phti in phats] for phtj in phats])**(beta/2)
 
-    assert epsilon_diff(ezs, zs, 10**-13)
-    assert epsilon_diff(ethetas, thetas, 10**-theta_eps)
+        assert epsilon_diff(ezs, zs, 10**-13)
+        assert epsilon_diff(ethetas, thetas, 10**-theta_eps)
 
 @pytest.mark.measure
 @pytest.mark.parametrize('check_input', [True, False])
-@pytest.mark.parametrize('event', ef.gen_random_events(2,15))
+@pytest.mark.parametrize('M', [1, 15])
 @pytest.mark.parametrize('measure', ['hadr', 'hadrdot', 'hadrefm', 'ee', 'eeefm'])
-def test_measure_list_input(measure, event, check_input):
+def test_measure_list_input(measure, M, check_input):
     meas = ef.Measure(measure, check_input=check_input)
-    list_event = event.tolist()
-    nd0, nd1 = meas.evaluate(event)
-    try:
-        list0, list1 = meas.evaluate(list_event)
-    except:
-        assert not check_input
-    else:
-        assert check_input
-        assert epsilon_diff(nd0, list0, 10**-14)
-        assert epsilon_diff(nd1, list1, 10**-14)
+
+    for event in ef.gen_random_events(2, M):
+        list_event = event.tolist()
+        nd0, nd1 = meas.evaluate(event)
+        try:
+            list0, list1 = meas.evaluate(list_event)
+        except:
+            assert not check_input
+        else:
+            assert check_input
+            assert epsilon_diff(nd0, list0, 10**-14)
+            assert epsilon_diff(nd1, list1, 10**-14)

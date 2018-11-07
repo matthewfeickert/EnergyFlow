@@ -9,7 +9,8 @@ from numpy.core.multiarray import c_einsum
 
 from energyflow.algorithms import einsum
 from energyflow.base import EFMBase
-from energyflow.utils import flat_metric, timing, transfer
+from energyflow.measure import measure_kwargs
+from energyflow.utils import flat_metric, timing
 from energyflow.utils.graph_utils import *
 
 __all__ = ['EFM', 'EFMSet', 'efp2efms']
@@ -90,7 +91,7 @@ class EFM(EFMBase):
         """"""
 
         # initialize base class
-        super(EFM, self).__init__(**kwargs)
+        super(EFM, self).__init__(kwargs)
 
         # store inputs
         self.nup, self.nlow = nup, nlow
@@ -160,22 +161,26 @@ class EFM(EFMBase):
 
     def _raw_construct(self, zsphats):
         zs, phats = zsphats
+        print(phats)
         M, dim = phats.shape
 
         # if no lowering is needed
         if self.nlow == 0:
             self.data = einsum(self.raw_einstr, zs, *[phats]*self.v, optimize=self.raw_einpath)
+            print('raw no lowering')
 
         # lowering phats first is better
         elif M*dim < dim**self.v:
             low_phats = phats * (flat_metric(dim)[np.newaxis])
             einsum_args = [phats]*self.nup + [low_phats]*self.nlow
             self.data = einsum(self.raw_einstr, zs, *einsum_args, optimize=self.raw_einpath)
+            print('raw lowering phats first')
 
         # lowering EFM is better    
         else:
             self.data = einsum(self.raw_einstr, zs, *[phats]*self.v, optimize=self.raw_einpath)
             self.data = self._raise_lower(self.data)
+            print('raw lowering efm')
 
         return self.data
 
@@ -201,7 +206,7 @@ class EFMSet(EFMBase):
 
     """A class for holding a collection of `EFM`s and constructing them as a set."""
 
-    def __init__(self, efm_specs, subslicing=False, **kwargs):
+    def __init__(self, efm_specs, **kwargs):
         """
         **Arguments**
 
@@ -213,22 +218,19 @@ class EFMSet(EFMBase):
         - **measure_dict** : _dict_
             - A dictionary of measure arguments to allow this EFMSet object to
             be called directly on events.
-        - **subslicing** : _bool_
-            - Whether the EFMs to be constructed have the subslicing property.
         """
 
-        # initialize base class
-        super(EFMSet, self).__init__(**kwargs)
+        hidden_subslicing = kwargs.pop('subslicing', False)
 
-        # note the underscore to avoid clashing with property in EFBase
-        self._subslicing = subslicing
+        # initialize base class
+        super(EFMSet, self).__init__(kwargs)
 
         # get unique EFMs 
         self.unique_efms = frozenset(efm_specs)
 
         # setup EFMs based on whether we can subslice or not
-        self.efms, self.efm_args, self.efm_rules = {}, {}, OrderedDict()
-        if self._subslicing:
+        self.efms, self.args, self.rules = {}, {}, OrderedDict()
+        if self.subslicing or hidden_subslicing:
             self._subslicing_setup()
         else:
             self._full_setup()
@@ -277,25 +279,25 @@ class EFMSet(EFMBase):
         # the first one must be raw constructed
         sig0 = self.sorted_efms[0]
         self.efms[sig0] = EFM(*sig0, no_measure=True)
-        self.efm_args[sig0] = 'r'
-        self.efm_rules[sig0] = 'constructing raw'
+        self.args[sig0] = 'r'
+        self.rules[sig0] = 'constructing raw'
 
         for sig in self.sorted_efms[1:]:
 
             # determine if we can subslice
             big_sig = self._find_subslice(sig)
             if big_sig is not None:
-                self.efms[sig] = EFM(*sig, subslicefrom=big_sig, no_measure=True)
-                self.efm_args[sig] = big_sig
-                self.efm_rules[sig] = 'subslicing from {}'.format(big_sig)
+                self.efms[sig] = EFM(*sig, subslice_from=big_sig, no_measure=True)
+                self.args[sig] = big_sig
+                self.rules[sig] = 'subslicing from {}'.format(big_sig)
 
             # find best raise/lower available
             else:
                 rlsig = self._find_minimum_rl(sig)
-                self.efms[sig] = EFM(*sig, rlfrom=rlsig, no_measure=True)
-                self.efm_args[sig] = rlsig
+                self.efms[sig] = EFM(*sig, rl_from=rlsig, no_measure=True)
+                self.args[sig] = rlsig
                 rl_n = abs(rlsig[0]-sig[0])
-                self.efm_rules[sig] = 'raising/lowering from {}, {}'.format(rlsig, rl_n)
+                self.rules[sig] = 'raising/lowering from {}, {}'.format(rlsig, rl_n)
 
     def _full_setup(self):
         """Setup the rules for constructing the EFMs without the assumption of any
@@ -313,14 +315,14 @@ class EFMSet(EFMBase):
             # construct raw (all up) if this is a new valency
             if v != vprev:
                 self.efms[sig] = EFM(*sig, no_measure=True)
-                self.efm_args[sig] = 'r'
-                self.efm_rules[sig] = 'constructing raw'
+                self.args[sig] = 'r'
+                self.rules[sig] = 'constructing raw'
 
             # construct from lowering if we have a previous EFM with this v
             else:
-                self.efms[sig] = EFM(*sig, rlfrom=sigprev, no_measure=True)
-                self.efm_args[sig] = sigprev
-                self.efm_rules[sig] = 'lowering from {}'.format(sigprev)
+                self.efms[sig] = EFM(*sig, rl_from=sigprev, no_measure=True)
+                self.args[sig] = sigprev
+                self.rules[sig] = 'lowering from {}'.format(sigprev)
 
             vprev, sigprev = v, sig
 
@@ -336,7 +338,7 @@ class EFMSet(EFMBase):
 
         efm_dict = {}
         for sig in self.sorted_efms:
-            arg = self.efm_args[sig]
+            arg = self.args[sig]
             data_arg = zsphats if arg == 'r' else self.efms[arg].data
             efm_dict[sig] = self.efms[sig].construct(data_arg)
 

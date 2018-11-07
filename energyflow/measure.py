@@ -1,51 +1,56 @@
-"""
-### Energy and Angular Measures
+r"""### Energy and Angular Measures
 
-The appropriate notions of energy and angle depend on the collider context. Typically, one wants
-to work with observables that respect the appropriate Lorentz subgroup for the collision type
-of interest. EnergyFlow is capable of handling two broad classes of measures: $e^+e^-$ and
-hadronic, which are selected using the required `measure` argument.
-For substructure applications, it is often convenient to normalize the energies so that
-$\\sum_iz_i=1$. The `normed` keyword argument is provided to control normalization of the
-energies (default is `True`).
+The appropriate notions of energy and angle depend on the collider context.
+Typically, one wants to work with observables that respect the appropriate
+Lorentz subgroup for the collision type of interest. EnergyFlow is capable
+of handling two broad classes of measures: $e^+e^-$ and hadronic, which are
+selected using the required `measure` argument. For substructure applications,
+it is often convenient to normalize the energies so that $\sum_iz_i=1$. The 
+`normed` keyword argument is provided to control normalization of the energies
+(default is `True`).
 
-Each measure comes with a parameter $\\beta>0$ which controls the relative weighting between
-smaller and larger anglular structures. This can be set using the `beta` keyword argument
-(default is `1`). There is also a $\\kappa$ parameter to control the relative weighting
-between soft and hard energies. This can be set using the `kappa` keyword argument
-(default is `1`). Only `kappa=1` yields collinear-safe observables.
+Each measure comes with a parameter $\beta>0$ which controls the relative 
+weighting between smaller and larger anglular structures. This can be set 
+using the `beta` keyword argument (default is `1`). There is also a $\kappa$
+parameter to control the relative weighting between soft and hard energies. 
+This can be set using the `kappa` keyword argument (default is `1`). Only 
+`kappa=1` yields collinear-safe observables.
 
-Beyond the measures implemented here, the user can implement their own custom measure by
-passing in $\\{z_i\\}$ and $\\{\\theta_{ij}\\}$ directly to the EFP classes.
+Beyond the measures implemented here, the user can implement their own 
+custom measure by passing in $\{z_i\}$ and $\{\theta_{ij}\}$ directly to the 
+EFP classes.
 
 #### Hadronic Measures
 
-For hadronic collisions, observables are typically desired to be invariant under boosts along
-the beam direction and rotations about the beam direction. Thus, particle transverse momentum
-$p_T$ and rapidity-azimuth coordinates $(y,\\phi)$ are used.
+For hadronic collisions, observables are typically desired to be invariant 
+under boosts along the beam direction and rotations about the beam direction. 
+Thus, particle transverse momentum $p_T$ and rapidity-azimuth coordinates 
+$(y,\phi)$ are used.
 
-There are two hadronic measures implemented in EnergyFlow: `'hadr'` and `'hadrdot'`.
-These are listed explicitly below.
+There are two hadronic measures implemented in EnergyFlow: `'hadr'` and 
+`'hadrdot'`. These are listed explicitly below.
 
 `'hadr'`:
-$$z_i=p_{T,i}^{\\kappa},\\quad\\quad \\theta_{ij}=(\\Delta y_{ij}^2 + \\Delta\\phi_{ij}^2)^{\\beta/2}.$$
+$$z_i=p_{T,i}^{\kappa},\quad\quad\theta_{ij}=(\Delta y_{ij}^2 + 
+\Delta\phi_{ij}^2)^{\beta/2}.$$
 
 `'hadrdot'`:
-$$z_i=p_{T,i}^{\\kappa},\\quad\\quad \\theta_{ij}=\\left(\\frac{2p^\\mu_ip_{j\\mu}}{p_{T,i}p_{T,j}}
-\\right)^{\\beta/2}.$$
+$$z_i=p_{T,i}^{\kappa},\quad\quad \theta_{ij}=\left(
+\frac{2p^\mu_ip_{j\mu}}{p_{T,i}p_{T,j}}\right)^{\beta/2}.$$
 
 #### *e+e-* Measures
 
-For $e^+e^-$ collisions, observables are typically desired to be invariant under the full
-group of rotations about the interaction point. Since the center of momentum energy is known,
-the particle energy $E$ is typically used. For the angular measure, pairwise Lorentz contractions
-of the normalized particle four-momenta are used.
+For $e^+e^-$ collisions, observables are typically desired to be invariant 
+under the full group of rotations about the interaction point. Since the 
+center of momentum energy is known, the particle energy $E$ is typically 
+used. For the angular measure, pairwise Lorentz contractions of the 
+normalized particle four-momenta are used.
 
 There is one $e^+e^-$ measure implemented.
 
 `'ee'`:
-$$z_i = E_{i}^{\\kappa},
-\\quad\\quad \\theta_{ij} = \\left(\\frac{2p_i^\\mu p_{j \\mu}}{E_i E_j}\\right)^{\\beta/2}.$$
+$$z_i=E_{i}^{\kappa},\quad\quad\theta_{ij}=\left(
+\frac{2p_i^\mu p_{j\mu}}{E_iE_j}\right)^{\beta/2}.$$
 """
 from __future__ import absolute_import, division, print_function
 
@@ -103,7 +108,7 @@ class Measure(with_metaclass(ABCMeta, object)):
         else:
             return super(Measure, cls).__new__(cls)
 
-    def __init__(self, measure, beta=1, kappa=1, normed=True, coords=None, check_input=True):
+    def __init__(self, measure, beta=1, kappa=1, normed=None, coords=None, check_input=True):
         """Processes inputs according to the measure choice.
 
         **Arguments**
@@ -127,16 +132,38 @@ class Measure(with_metaclass(ABCMeta, object)):
             - Whether to check the type of input each time or assume the first input type.
         """
 
+        # store parameters
         transfer(self, locals(), ['measure', 'kappa', 'normed', 'coords', 'check_input'])
 
+        # check that coords is appropriate
+        if self.coords not in [None, 'epxpypz', 'ptyphim']:
+            raise ValueError('coords must be one of epxpypz, ptyphim, or None')
+
+        # verify beta
         self.beta = float(beta)
         self.half_beta = self.beta/2
         assert self.beta > 0
 
-        if self.coords not in [None, 'epxpypz', 'ptyphim']:
-            raise ValueError('coords must be one of epxpypz, ptyphim, or None')
-
+        # measure function is not yet set
         self.need_meas_func = True
+
+        # handle kappa options
+        self._k_func = _kappa_func
+        if self.kappa == pf_marker:
+
+            # cannot subslice when kappa = pf
+            self.subslicing = False
+
+            # if normed was set to True, warn them abou this
+            if self.normed:
+                warnings.warn('Normalization not supported when kappa=\'' + pf_marker + '\', '
+                              'setting normed=False.')
+                self.normed = False
+            self._k_func = _pf_func
+
+        # normed default to True if it's None at this point
+        if self.normed is None:
+            self.normed = True
 
     def evaluate(self, arg):
         """Evaluate the measure on a set of particles.
@@ -197,14 +224,6 @@ class Measure(with_metaclass(ABCMeta, object)):
     def _ps_dot(self, ps):
         return np.abs(2*np.dot(ps[:,np.newaxis]*ps[np.newaxis,:], self.metric))
 
-    def _set_k_func(self):
-        self._k_func = _kappa_func
-        if self.kappa == pf_marker:
-            if self.normed:
-                warnings.warn('Normalization not supported when kappa=\'' + pf_marker + '\'.')
-            self.normed = False
-            self._k_func = _pf_func
-
 ###############################################################################
 # HadronicMeasure
 ###############################################################################
@@ -220,7 +239,6 @@ class HadronicMeasure(Measure):
 
     def __init__(self, *args, **kwargs):
         super(HadronicMeasure, self).__init__(*args, **kwargs)
-        self._set_k_func()
         if self.coords is None:
             self.coords = 'ptyphim'
         self.epxpypz = (self.coords == 'epxpypz')
@@ -262,7 +280,6 @@ class EEMeasure(Measure):
 
     def __init__(self, *args, **kwargs):
         super(EEMeasure, self).__init__(*args, **kwargs)
-        self._set_k_func()
         if self.coords is None:
             self.coords = 'epxpypz'
         self.epxpypz = self.coords == 'epxpypz'
@@ -302,7 +319,8 @@ class HadronicDefaultMeasure(HadronicMeasure):
 
     def ndarray_dim4(self, arg):
         if self.epxpypz:
-            return pts_from_p4s(arg)**self.kappa, _thetas2_from_p4s(arg)**self.half_beta
+            pts = np.atleast_1d(pts_from_p4s(arg))**self.kappa
+            return pts, _thetas2_from_p4s(arg)**self.half_beta
         else:
             return self.ndarray_dim3(arg[:,:3])
 
@@ -320,14 +338,14 @@ class HadronicDotMeasure(HadronicMeasure):
     metric = flat_metric(4)
 
     def ndarray_dim3(self, arg):
-        pts, p4s = self._k_func(arg[:,0], p4s_from_ptyphims(arg), self.kappa)
+        pts, p4s = self._k_func(arg[:,0], np.atleast_2d(p4s_from_ptyphims(arg)), self.kappa)
         return pts, self._ps_dot(p4s)**self.half_beta
 
     def ndarray_dim4(self, arg):
         if self.epxpypz:
-            pts, p4s = self._k_func(pts_from_p4s(arg), arg, self.kappa)
+            pts, p4s = self._k_func(np.atleast_1d(pts_from_p4s(arg)), arg, self.kappa)
         else:
-            pts, p4s = self._k_func(arg[:,0], p4s_from_ptyphims(arg), self.kappa)
+            pts, p4s = self._k_func(arg[:,0], np.atleast_2d(p4s_from_ptyphims(arg)), self.kappa)
         return pts, self._ps_dot(p4s)**self.half_beta
 
     def pseudojet(self, arg):
@@ -345,16 +363,16 @@ class HadronicEFMMeasure(HadronicMeasure):
 
     def __init__(self, *args, **kwargs):
         super(HadronicEFMMeasure, self).__init__(*args, **kwargs)
-        self.beta = None
+        self.beta, self.half_beta = 2, 1
 
     def ndarray_dim3(self, arg):
-        return self._k_func(arg[:,0], p4s_from_ptyphims(arg), self.kappa)
+        return self._k_func(arg[:,0], np.atleast_2d(p4s_from_ptyphims(arg)), self.kappa)
 
     def ndarray_dim4(self, arg):
         if self.epxpypz:
-            return self._k_func(pts_from_p4s(arg), arg, self.kappa)
+            return self._k_func(np.atleast_1d(pts_from_p4s(arg)), arg, self.kappa)
         else:
-            return self._k_func(arg[:,0], p4s_from_ptyphims(arg), self.kappa)
+            return self._k_func(arg[:,0], np.atleast_2d(p4s_from_ptyphims(arg)), self.kappa)
 
     def pseudojet(self, arg):
         pts, constituents = super(HadronicEFMMeasure, self).pseudojet(arg)
@@ -389,11 +407,11 @@ class EEEFMMeasure(EEMeasure):
 
     def __init__(self, *args, **kwargs):
         super(EEEFMMeasure, self).__init__(*args, **kwargs)
-        self.beta = None
+        self.beta, self.half_beta = 2, 1
 
     def ndarray_dim_arb(self, arg):
         if not self.epxpypz:
-            arg = p4s_from_ptyphims(arg)
+            arg = np.atleast_2d(p4s_from_ptyphims(arg))
         return self._k_func(arg[:,0], arg, self.kappa)
 
     def pseudojet(self, arg):

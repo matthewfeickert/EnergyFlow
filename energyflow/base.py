@@ -20,9 +20,9 @@ class EFBase(with_metaclass(ABCMeta, object)):
 
     """A base class for EnergyFlow objects that holds a `Measure`."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, kwargs):
 
-        kwargs_check('__init__', kwargs, allowed=measure_kwargs)
+        kwargs_check('EFBase', kwargs, allowed=measure_kwargs)
         self._measure = Measure(kwargs.pop('measure'), **kwargs)
 
     def has_measure(self):
@@ -62,19 +62,16 @@ class EFBase(with_metaclass(ABCMeta, object)):
 ###############################################################################
 class EFPBase(EFBase):
 
-    def __init__(self, **kwargs):
-
-        # determine EFM usage
-        measure = kwargs.setdefault('measure', 'hadr')
-        self.use_efms = 'efm' in measure
-
-        # deprecated
-        if 'efpm' in measure:
-            raise ValueError('\'efpm\' no longer supported')
+    def __init__(self, kwargs):
 
         # initialize base class if measure needed
         if not kwargs.pop('no_measure', False):
-            super(EFPBase, self).__init__(**kwargs)
+
+            # set default measure for EFPs
+            kwargs.setdefault('measure', 'hadr')
+            super(EFPBase, self).__init__(kwargs)
+
+            self.use_efms = 'efm' in self.measure    
 
     def get_zs_thetas_dict(self, event, zs, thetas):
         if event is not None:
@@ -150,14 +147,15 @@ class EFPBase(EFBase):
 ###############################################################################
 class EFMBase(EFBase):
 
-    def __init__(self, **kwargs):
+    def __init__(self, kwargs):
 
         # verify we're using an efm measure
-        assert 'efm' in kwargs.setdefault('measure', 'hadrefm'), 'An EFM must use an efm measure.'
+        assert 'efm' in kwargs.setdefault('measure', 'hadrefm'), 'Must use an efm measure.'
 
         # initialize base class if measure needed
         if not kwargs.pop('no_measure', False):
-            super(EFMBase, self).__init__(**kwargs)
+            super(EFMBase, self).__init__(kwargs)
+            self._measure.beta = None
 
     @abstractmethod
     def compute(self, event=None, zs=None, phats=None):
