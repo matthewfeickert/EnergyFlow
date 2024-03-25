@@ -4,13 +4,10 @@ on:
   push:
     branches:
       - master
-
-env:
-  PYPI: 0
-  PYPITEST: 1
-  TWINE_USERNAME: __token__
-  TWINE_PASSWORD_PYPITEST: ${{ secrets.TWINE_PASSWORD_PYPITEST }}
-  TWINE_PASSWORD_PYPI: ${{ secrets.TWINE_PASSWORD_PYPI }}
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
 
 jobs:
   build:
@@ -22,18 +19,17 @@ jobs:
 
     steps:
       - name: Checkout repository and submodules
-        uses: actions/checkout@v3
-        with:
-          submodules: recursive
+        uses: actions/checkout@v4
+
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Display Python version
-        run: python --version
+
       - name: Install test prerequisites
         run: |
-          pip install cython
-          pip install .[tests]
+          python -m pip install cython
+          python -m pip install '.[tests]'
+
       - name: Run tests
-        run: python setup.py test -v
+        run: pytest --verbose energyflow/tests/
