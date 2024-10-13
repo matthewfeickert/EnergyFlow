@@ -2,8 +2,6 @@ name: publish distributions
 
 on:
   push:
-    branches:
-      - master
   pull_request:
   # Run weekly at 1:23 UTC
   schedule:
@@ -38,7 +36,6 @@ jobs:
       attestations: write
       contents: read
     runs-on: ubuntu-latest
-    if: github.repository_owner == 'thaler-lab' && github.event_name == 'release' && github.event.action == 'published'
 
     steps:
       - uses: actions/download-artifact@v4
@@ -46,12 +43,5 @@ jobs:
           name: packages
           path: dist
 
-      - name: Generate artifact attestation for sdist and wheel
-        uses: actions/attest-build-provenance@1c608d11d69870c2092266b3f9a6f3abbf17002c # v1.4.3
-        with:
-          subject-path: "dist/*"
-
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          print-hash: true
-          attestations: true
+      - name: check dist
+        run: ls -lh dist
