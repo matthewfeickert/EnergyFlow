@@ -103,6 +103,7 @@ tests = [
     "pytest",
     "scikit-learn",
     "tensorflow >= 2.5.0",
+    "tf-keras",
 ]
 
 [project.urls]
