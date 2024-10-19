@@ -20,8 +20,6 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
-      # TODO Remove when Windows builds stop failing (see #47)
-      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-13, macos-latest, windows-latest]
         python-version: ['3.9', '3.10', '3.11', '3.12']
@@ -37,13 +35,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Display Python version
-        run: python --version
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v3
 
       - name: Install test prerequisites
         run: |
-          python -m pip install cython tf-keras
-          python -m pip install '.[tests]'
+          # uv pip install --system cython tf-keras
+          uv pip install --system --upgrade ".[tests]"
 
       - name: Run tests
         run: pytest --verbose tests/
