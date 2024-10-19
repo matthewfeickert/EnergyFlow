@@ -44,7 +44,7 @@ jobs:
           # # uv pip install --system --upgrade ".[tests]"
           # uv pip install --system ".[tests]"
 
-          python -m pip install cython tf-keras
+          # python -m pip install cython tf-keras
           python -m pip install --upgrade ".[tests]"
 
       - name: List installed Python packages
