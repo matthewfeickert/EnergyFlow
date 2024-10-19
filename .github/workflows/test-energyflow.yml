@@ -40,16 +40,13 @@ jobs:
 
       - name: Install test prerequisites
         run: |
-          # uv pip install --system cython tf-keras
-          # # uv pip install --system --upgrade ".[tests]"
-          # uv pip install --system ".[tests]"
+          # python -m pip install --upgrade ".[tests]"
 
-          # python -m pip install cython tf-keras
-          python -m pip install --upgrade ".[tests]"
+          uv pip install --system --upgrade ".[tests]"
 
       - name: List installed Python packages
-        # run: uv pip list --system
-        run: python -m pip list
+        run: uv pip list --system
+        # run: python -m pip list
 
       - name: Run tests
         run: pytest --verbose tests/

@@ -102,8 +102,8 @@ tests = [
     "pot >= 0.8.0",
     "pytest",
     "scikit-learn",
+    "tf-keras>=2.17.0",  # installs tensorflow
     "tensorflow >= 2.5.0",
-    "tf-keras",
 ]
 
 [project.urls]
